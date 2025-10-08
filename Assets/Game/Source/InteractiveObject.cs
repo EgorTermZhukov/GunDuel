@@ -11,7 +11,6 @@ namespace Game.Source
     public class ItemData
     {
         public Item ItemType;
-        public float BaseProbabilityWeight;
     }
     public class InteractiveObject : MonoBehaviour
     {
@@ -25,21 +24,6 @@ namespace Game.Source
         [SerializeField] private SpriteRenderer _spriteRenderer;
         [SerializeField] private DraggableSmoothDamp _draggable;
         [SerializeField] private bool _isLocked = false;
-        
-        // Im going to put the state of the item there until i figure out how to implement my verison of CMS or something like that 
-        [field: SerializeField] public ItemData ItemData { get; private set; }
-        private void Awake()
-        {
-            _draggable.OnDragEnded += CastForNewSlot;
-        }
-
-        private void Update()
-        {
-            if (_draggable.IsDragging)
-                return;
-            var waveValue = Mathf.Sin(Time.time * _waveSpeed + transform.position.x);
-            _spriteHolder.transform.localPosition = new(0, waveValue * _waveAmplitude, 0);
-        }
         public bool IsLocked
         {
             get => _isLocked;
@@ -47,9 +31,21 @@ namespace Game.Source
             {
                 _isLocked = value;
                 _draggable.enabled = !value;
-            } 
+            }
         }
-
+        // Im going to put the state of the item there until i figure out how to implement my verison of CMS or something like that 
+        [field: SerializeField] public ItemData ItemData { get; private set; }
+        private void Awake()
+        {
+            _draggable.OnDragEnded += CastForNewSlot;
+        }
+        private void Update()
+        {
+            if (_draggable.IsDragging)
+                return;
+            var waveValue = Mathf.Sin(Time.time * _waveSpeed + transform.position.x);
+            _spriteHolder.transform.localPosition = new(0, waveValue * _waveAmplitude, 0);
+        }
         public void Restore()
         {
             _spriteRenderer.color = Color.white;
@@ -60,6 +56,7 @@ namespace Game.Source
         {
             _spriteRenderer.color = Color.brown;
         }
+        // maybe data should be the one holding itemview?
         public void SetData(ItemData itemData)
         {
             _spriteRenderer.sprite = GameAssetReferences.Instance.GetItemSprite(itemData.ItemType);   
@@ -83,11 +80,6 @@ namespace Game.Source
                 return;
             switch (ItemData.ItemType)
             {
-                case Item.Gun:
-                    transform.DOKill();
-                    transform.rotation = Quaternion.identity;
-                    transform.DORotate(new(0, 0, 360f), 0.2f, RotateMode.FastBeyond360).SetRelative();
-                    break;
                 case Item.Bullet:
                     transform.DOKill();
                     transform.localScale = Vector3.one;

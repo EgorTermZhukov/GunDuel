@@ -247,7 +247,7 @@ MonoBehaviour:
   - ItemType: 1
     Weight: 1
   - ItemType: 2
-    Weight: 5
+    Weight: 1
   _debugSlots:
   - DiceValue: 1
     Item: 1
@@ -266,7 +266,7 @@ MonoBehaviour:
     BaseWeight: 1
   - DiceValue: 6
     Item: 0
-    BaseWeight: 5
+    BaseWeight: 1
 --- !u!4 &130211639
 Transform:
   m_ObjectHideFlags: 0
