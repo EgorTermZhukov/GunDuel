@@ -1,0 +1,57 @@
+using System;
+using System.Collections.Generic;
+using DG.Tweening;
+using TMPro;
+using Unity.Mathematics;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public enum Item
+    {
+        None,
+        Bullet
+    }
+    public class InventorySlot : MonoBehaviour
+    {
+        public ItemHolder ItemHolder;
+        public event Action OnItemClaimed;
+        public event Action OnItemReleased;
+        // I should probably implement some kind of nullobject later
+        public InteractiveObject InteractiveObject => ItemHolder.InteractiveObject;
+
+        private void Awake()
+        {
+            ItemHolder = GetComponentInChildren<ItemHolder>();
+            ItemHolder.OnClaimed += HolderClaimed;
+            ItemHolder.OnReleased += HolderReleased;
+        }
+        // wrappers for item holder inside
+        public void Claim(InteractiveObject interactiveObject)
+        {
+            if (InteractiveObject == interactiveObject)
+                return;
+            // Overrides Item holders claim and calls it explicitly
+            ItemHolder.Claim(interactiveObject);
+            OnItemClaimed?.Invoke();
+        }
+        public void Release()
+        {
+            ItemHolder.Release();
+        }
+        private void HolderClaimed()
+        {
+            OnItemClaimed?.Invoke();
+        }
+        private void HolderReleased()
+        {
+            OnItemReleased?.Invoke();
+        }
+        public void Activate()
+        {
+            if (InteractiveObject == null)
+                return;
+            //InteractiveObject.AnimateAction();
+        }
+    }
+}

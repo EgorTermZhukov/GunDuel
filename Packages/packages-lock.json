@@ -1,5 +1,12 @@
 {
   "dependencies": {
+    "com.megurte.cms": {
+      "version": "https://github.com/megurte/ContentManagementSystem.git?path=/src#1.4.1",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "78528ac038c1cd92c0ab690add45bd5a0ad5d573"
+    },
     "com.unity.2d.animation": {
       "version": "11.0.0",
       "depth": 0,
