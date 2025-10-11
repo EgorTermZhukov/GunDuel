@@ -16,7 +16,7 @@ namespace Game.Source
             if (_draggable.IsDragging)
                 return;
             var waveValue = Mathf.Sin(Time.time * _waveSpeed + transform.position.x);
-            _spriteHolder.transform.localPosition = new(0, waveValue * _waveAmplitude, 0);
+            _spriteHolder.transform.localPosition = new Vector3(0, waveValue * _waveAmplitude, 0);
         }
     }
 }

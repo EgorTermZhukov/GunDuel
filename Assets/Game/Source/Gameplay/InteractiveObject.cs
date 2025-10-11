@@ -1,9 +1,13 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using DG.Tweening;
+using Game.Source.Data;
 using Game.Source.Tags;
 using NUnit.Framework.Constraints;
 using TMPro;
 using Unity.Mathematics;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -12,16 +16,29 @@ namespace Game.Source
     public class ItemState
     {
         public CMSEntity Model;
+        public List<ModifiableComponentDefinition> ModifiableComponents;
         public float BaseUseDuration;
         public float UseDuration;
         public bool Exhausted;
         public InteractiveObject View;
+        
+        public T Get<T>() where T : EntityComponentDefinition, new()
+        {
+            return ModifiableComponents.Find(m => m is T) as T;
+        }
+        public bool Is<T>(out T unknown) where T : ModifiableComponentDefinition, new()
+        {
+            unknown = Get<T>();
+            return unknown != null;
+        }
     }
-    public class InteractiveObject : MonoBehaviour
+    public class InteractiveObject : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
         public ItemState ItemState;
         
         [SerializeField] private DraggableSmoothDamp _draggable;
+
+        public event Action<PointerEventData, InteractiveObject> OnDragEnded;
         public MoveableBase Moveable => _draggable.Moveable;
         public ItemHolder ItemHolder { get; set; }
 
@@ -31,6 +48,8 @@ namespace Game.Source
         [SerializeField] private SpriteRenderer _spriteRenderer;
         
         [SerializeField] private bool _isLocked = false;
+        [SerializeField] private bool _timerTicking = false;
+        [SerializeField] private float _useTimer = 0f;
         
         [SerializeField] private float _colorCycleSpeed = 2f;
 
@@ -46,11 +65,32 @@ namespace Game.Source
         }
         private void Awake()
         {
-            _draggable.OnDragEnded += CastForNewSlot;
+            _draggable.OnDragEnded += FinishedDragging;
+            OnDragEnded += G.main.CastForNewSlot;
         }
+
+        private void OnDestroy()
+        {
+            _draggable.OnDragEnded -= FinishedDragging;
+            OnDragEnded -= G.main.CastForNewSlot;
+        }
+
         // move this somewhere else later
         private void Update()
         {
+            if (_timerTicking)
+            {
+                _useTimer -= Time.deltaTime;
+                if (_useTimer <= 0f)
+                {
+                    _timerTicking = false;
+                }
+                else
+                {
+                    var roundedValue = Math.Round(_useTimer, 1);
+                    _useText.text = roundedValue.ToString();
+                }
+            }
             var colorTag = ItemState.Model.Get<TagColorPaletteProvider>();
             _colorT = Mathf.Sin(transform.position.x + Time.time * _colorCycleSpeed);
  
@@ -58,38 +98,74 @@ namespace Game.Source
                 _spriteRenderer.color = Color.Lerp(colorTag.BaseColor, colorTag.MaxColor, _colorT);
         }
 
-        public void SetUseTimeText(float useTime)
+        public IEnumerator StartTickingTimer()
         {
-            _useText.text = useTime.ToString();
+            _useTimer = ItemState.Get<TagUseDuration>().Duration;
+            _timerTicking = true;
+            yield break;
+        }
+        public void UpdateTimeText()
+        {
+            _useText.transform.DOKill();
+            _useText.transform.localScale = Vector3.one;
+            _useText.text = ItemState.Get<TagUseDuration>().Duration.ToString();
+            _useText.gameObject.transform.DOPunchScale(new Vector3(0.2f, 0.2f, 0.2f), 0.2f);
         }
         public void SetState(ItemState itemState)
         {
             ItemState = itemState;
-            SetUseTimeText(itemState.Model.Get<TagUseDuration>().Duration);
-            // receive some sort of palette changer here that constantly updates the colors of an object
+            UpdateTimeText();
         }
         public void Restore()
         {
             ItemState.Exhausted = false;
             _spriteRenderer.color = Color.white;
-            transform.rotation = Quaternion.identity;
-            transform.DORotate(new(0, 0, 360f), 0.2f, RotateMode.FastBeyond360).SetRelative();
+            Spin();
+        }
+        public void Spin()
+        {
+            _spriteHolder.transform.DOKill();
+            _spriteHolder.transform.rotation = Quaternion.identity;
+            _spriteHolder.transform.DORotate(new(0, 0, 360f), 0.4f, RotateMode.FastBeyond360).SetRelative();
         }
         public void Exhaust()
         {
+            transform.DOKill();
+            transform.localScale = Vector3.one;
+            transform.DOPunchScale(new(0.2f, 0.2f, 0.2f), 0.2f);
             ItemState.Exhausted = true;
             _spriteRenderer.color = Color.brown;
         }
-        public void CastForNewSlot(PointerEventData eventData)
+
+        public void FinishedDragging(PointerEventData eventData)
         {
-            var ray = Camera.main.ScreenPointToRay(eventData.position);
-            var raycastHit = Physics2D.RaycastAll(ray.origin, ray.direction, 100f, 1 << 3);
-            foreach (var hit in raycastHit)
-            {
-                var itemHolder = hit.collider.gameObject.GetComponentInParent<ItemHolder>();
-                itemHolder.Claim(this);
-                break;
-            }
+            OnDragEnded?.Invoke(eventData, this);
+        }
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            if (_draggable.IsDragging)
+                return;
+            var name = ItemState.Model.Get<TagName>();
+            var description = ItemState.Model.Get<TagDescription>();
+            G.main.Tooltip.Show(name.Name, description.Loc);
+        }
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            G.main.Tooltip.Hide();
+        }
+
+        public void SlashTowards(GameObject target)
+        {
+            StartCoroutine(SlashTowardsRoutine(target));
+        }
+
+        public IEnumerator SlashTowardsRoutine(GameObject target)
+        {
+            Moveable.TargetPosition = target.transform.position;
+            yield return new WaitForSeconds(0.5f);
+            Spin();
+            yield return new WaitForSeconds(0.4f);
+            Moveable.TargetPosition = ItemHolder.transform.position;
         }
     }
 }

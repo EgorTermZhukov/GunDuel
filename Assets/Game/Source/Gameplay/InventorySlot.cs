@@ -14,6 +14,7 @@ namespace Game.Source
     }
     public class InventorySlot : MonoBehaviour
     {
+        public Transform CursorTarget;
         public ItemHolder ItemHolder;
         public event Action OnItemClaimed;
         public event Action OnItemReleased;

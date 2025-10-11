@@ -1,6 +1,6 @@
 namespace Game.Source.Tags
 {
-    public class TagItemLevel : EntityComponentDefinition
+    public class TagItemLevel : ModifiableComponentDefinition
     {
         public int Level;
     }

@@ -13,9 +13,12 @@ public struct ItemSprite
 }
 public class SlotArea : MonoBehaviour
 {
+    [SerializeField] public MoveableBase SlotPointer;
     [SerializeField] private GameObject _diceSlotPrefab;
     [SerializeField] private Transform Anchor;
     [SerializeField] public float Spacing;
+
+    public int CurrentItemIndex = 0;
     
     public List<InventorySlot> FaceSlots = new List<InventorySlot>();
     void Start()
