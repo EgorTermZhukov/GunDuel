@@ -1,0 +1,1594 @@
+
+--- Content of ./MainSystems/Main.cs ---
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using DG.Tweening;
+using Game.Source.Data;
+using Game.Source.Data.Characters;
+using Game.Source.Tags;
+using TMPro;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
+
+namespace Game.Source
+{
+    [Serializable]
+    public struct SlotInitializationDebug
+    {
+        public string EntityID;
+    }
+    [Serializable]
+    public struct ItemDataInitialization
+    {
+        public Item ItemType;
+    }
+    public class Main : MonoBehaviour
+    {
+        // maybe SideManager should be in SlotArea...
+        [SerializeField] public Tooltip Tooltip;
+        
+        [SerializeField] public SlotArea PlayerSlots;
+        [SerializeField] public SlotArea EnemySlots;
+
+        [SerializeField] public StatsView PlayerStatsView;
+        [SerializeField] public StatsView EnemyStatsView;
+
+        [SerializeField] public GameObject PlayerCharacter;
+        [SerializeField] public GameObject EnemyCharacter;
+
+        [SerializeField] private TMP_Text _winText;
+
+        public Interactor Interactor;
+        public SideTurnsManager PlayerSideTurns;
+        public SideTurnsManager EnemySideTurns;
+
+        public bool FightHappening = false;
+        public bool SomebodyLost = false;
+        
+        // debug parts for now
+        public List<SlotInitializationDebug> _debugSlots = new List<SlotInitializationDebug>();
+        private void Awake()
+        {
+            Interactor = new Interactor();
+            Interactor.Init();
+            
+            G.main = this;
+        }
+        private void Start()
+        { 
+            CMS.Init();
+
+            //G.OnGameReady?.Invoke();
+            var playerCharacter = CMS.Get<BasicCharacter>();
+            var enemyCharacter = CMS.Get<BasicCharacter>();
+            
+            PlayerSideTurns = new SideTurnsManager(playerCharacter.Get<SideState>(), PlayerStatsView, PlayerSlots, PlayerCharacter);
+            EnemySideTurns = new SideTurnsManager(enemyCharacter.Get<SideState>(), EnemyStatsView, EnemySlots, EnemyCharacter);
+            
+            PlayerSideTurns.OpposingSideTurns = EnemySideTurns;
+            EnemySideTurns.OpposingSideTurns = PlayerSideTurns;
+
+            for (int i = 0; i < playerCharacter.Get<TagSlotCount>().Count; i++)
+            {
+                var faceSlot = PlayerSlots.AddSlot();
+            }
+            for (int i = 0; i < enemyCharacter.Get<TagSlotCount>().Count; i++)
+            {
+                var faceSlot = EnemySlots.AddSlot();
+            }
+        }
+        public IEnumerator AnnounceWinner(string winner)
+        {
+            _winText.text = "Winner - " + winner;
+            _winText.transform.gameObject.SetActive(true);
+            _winText.transform.DOShakePosition(2.5f);
+            yield return new WaitForSeconds(3f);
+            _winText.transform.gameObject.SetActive(false);
+            ResetAllSideStats();
+            FightHappening = false;
+        }
+        public void ResetAllSideStats()
+        {
+            var playerCharacter = CMS.Get<BasicCharacter>();
+            var enemyCharacter = CMS.Get<BasicCharacter>();
+            
+            PlayerSideTurns = new SideTurnsManager(playerCharacter.Get<SideState>(), PlayerStatsView, PlayerSlots, PlayerCharacter);
+            StartCoroutine(PlayerSideTurns.RestoreSlots());
+            EnemySideTurns = new SideTurnsManager(enemyCharacter.Get<SideState>(), EnemyStatsView, EnemySlots, EnemyCharacter);
+            StartCoroutine(EnemySideTurns.RestoreSlots());
+            
+            PlayerSideTurns.OpposingSideTurns = EnemySideTurns;
+            EnemySideTurns.OpposingSideTurns = PlayerSideTurns;
+        }
+        private void Update()
+        {
+            if (FightHappening && !SomebodyLost)
+            {
+
+                if (EnemySideTurns.SideState.Health <= 0f)
+                {
+                    SomebodyLost = true;
+                    StopAllCoroutines();
+                    StartCoroutine(AnnounceWinner("Player"));
+                }
+                else if (PlayerSideTurns.SideState.Health <= 0f)
+                {
+                    SomebodyLost = true;
+                    StopAllCoroutines();
+                    StartCoroutine(AnnounceWinner("Enemy"));
+                }
+            }
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            }
+            if (Input.GetKeyDown(KeyCode.Z))
+            {
+                StartCoroutine(AddItem<BulletItem>());
+            }
+            else if (Input.GetKeyDown(KeyCode.X))
+            {
+                StartCoroutine(AddItem<HandItem>());
+            }
+            else if (Input.GetKeyDown(KeyCode.C))
+            {
+                StartCoroutine(AddItem<KnifeItem>());
+            }
+            else if (Input.GetKeyDown(KeyCode.V))
+            {
+                StartCoroutine(AddItem<GunpowderItem>());
+            }
+            // else if (Input.GetKeyDown(KeyCode.B))
+            // {
+            //     StartCoroutine(AddItem<ImprovedSkullItem>());
+            // }
+
+            if (!FightHappening)
+            {
+                if (Input.GetKeyDown(KeyCode.Space))
+                {
+                    TryStartFight();
+                }
+            }
+        }
+        public void TryStartFight()
+        {
+            SomebodyLost = false;
+            FightHappening = true;
+            StartCoroutine(PlayerSideTurns.UseAllSequence(PlayerSlots, EnemySideTurns));
+            StartCoroutine(EnemySideTurns.UseAllSequence(EnemySlots, PlayerSideTurns));
+        }
+        public IEnumerator AddItem<T>() where T : CMSEntity
+        {
+            var basicItem = CMS.Get<T>();
+            
+            Debug.Log(basicItem.id);
+            var interactiveObject = Instantiate(basicItem.Get<TagPfb>().Prefab);
+
+            var state = new ItemState();
+
+            var modifiables = basicItem.components.FindAll(x=> x is ModifiableComponentDefinition);
+
+            state.ModifiableComponents = new();
+            foreach (var modifiable in modifiables)
+            {
+                state.ModifiableComponents.Add(modifiable.DeepCopy() as ModifiableComponentDefinition);
+            }
+            state.Model = basicItem;
+            state.View = interactiveObject;
+            
+            interactiveObject.SetState(state);
+            
+            PlayerSlots.AddItemToFreeSlot(interactiveObject);
+            
+            yield break;
+        }
+        
+        // move it to turnsSideManager
+        public IEnumerator NegateCooldown(InteractiveObject itemToBuff)
+        {
+            if (itemToBuff.ItemState.Is<TagUseDuration>(out var useDuration))
+            {
+                useDuration.Duration = 0f;
+            }
+            yield break;
+        }
+        public void CastForNewSlot(PointerEventData eventData, InteractiveObject draggedObject)
+        {
+            var ray = Camera.main.ScreenPointToRay(eventData.position);
+            var raycastHit = Physics2D.RaycastAll(ray.origin, ray.direction, 100f, 1 << 3);
+            foreach (var hit in raycastHit)
+            {
+                var itemHolder = hit.collider.gameObject.GetComponentInParent<ItemHolder>();
+                itemHolder.Claim(draggedObject);
+                break;
+            }
+        }
+    }
+}
+
+
+
+--- Content of ./MainSystems/G.cs ---
+
+using System;
+
+namespace Game.Source
+{
+    public static class G
+    {
+        public static Main main;
+        public static Feel feel;
+        public static SoundManager soundManager;
+    }
+}
+
+
+
+--- Content of ./MainSystems/Tooltip.cs ---
+
+using TMPro;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class Tooltip : MonoBehaviour
+    {
+        [SerializeField]
+        private TMP_Text _name;
+        [SerializeField]
+        private TMP_Text _description;
+
+        [SerializeField]
+        GameObject _holder;
+        
+        public void Show(string itemName, string description)
+        {
+            var mousePos = Input.mousePosition;
+            var position = Camera.main.ScreenToWorldPoint(mousePos);
+            transform.position = new Vector3(position.x, position.y, transform.position.z);
+            _name.text = itemName;
+            _description.text = description;
+            _holder.SetActive(true);
+        }
+        public void Hide()
+        {
+            _holder.SetActive(false);
+        }
+    }
+}
+
+
+
+--- Content of ./MainSystems/SideTurnsManager.cs ---
+
+using System.Collections;
+using DG.Tweening;
+using Game.Source.Data;
+using Game.Source.Data.Characters;
+using Game.Source.Tags;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class SideTurnsManager
+    {
+        public SideTurnsManager OpposingSideTurns;
+        public SideState SideState;
+        public StatsView SideStatsView;
+        public SlotArea Slots;
+        public int CurrentItemIndex = 0;
+        public GameObject SideCharacter;
+        public SideTurnsManager(SideState sideState, StatsView sideStatsView, SlotArea slots, GameObject sideCharacter)
+        {
+            SideCharacter = sideCharacter;
+            
+            SideState = sideState.DeepCopy();
+            SideStatsView = sideStatsView;
+            
+            sideStatsView.SetHealth(sideState.Health);
+            sideStatsView.SetDamage(sideState.Damage);
+            sideStatsView.SetDamageMulitplier(sideState.DamageMultiplier);
+            sideStatsView.SetDefense(sideState.Defense);
+            sideStatsView.SetDefenseMultiplier(sideState.DefenseMultiplier);
+
+            Slots = slots;
+        }
+        public IEnumerator UseAllSequence(SlotArea slotArea, SideTurnsManager opponentSideTurns)
+        {
+            foreach (var slot in slotArea.FaceSlots)
+            {
+                slotArea.SlotPointer.TargetPosition = slot.CursorTarget.position;
+                if (slot.InteractiveObject == null)
+                {
+                    CurrentItemIndex++;
+                    continue;
+                }
+                var onUsed = G.main.Interactor.FindAll<IOnUse>();
+                var item = slot.InteractiveObject;
+                
+                yield return item.StartTickingTimer();
+                yield return new WaitForSeconds(item.ItemState.Get<TagUseDuration>().Duration);
+                
+                foreach (var onUse in onUsed)
+                {
+                    yield return onUse.OnUse(item.ItemState, this, slotArea);
+                }
+                item.Exhaust();
+                for (int i = CurrentItemIndex + 1; i < Slots.FaceSlots.Count; i++)
+                {
+                    var onNotUsed = G.main.Interactor.FindAll<IOnNotUsed>();
+                    var notUsedItem = Slots.FaceSlots[i].InteractiveObject;
+                    if (notUsedItem == null)
+                        continue;
+                    foreach (var notUsed in onNotUsed)
+                    {
+                        slotArea.SlotPointer.TargetPosition = slot.CursorTarget.position;
+                        yield return notUsed.OnNotUsed(notUsedItem.ItemState, this, slotArea);
+                    }
+                }
+                CurrentItemIndex++;
+            }
+
+            yield return RestoreSlots();
+            yield return DealDamageToTheOpposingSide(opponentSideTurns);
+        }
+        public IEnumerator RestoreSlots()
+        {
+            CurrentItemIndex = 0;
+            foreach (var slot in Slots.FaceSlots)
+            {
+                if (slot.InteractiveObject == null)
+                    continue;
+                var duration = slot.InteractiveObject.ItemState.Get<TagUseDuration>();
+                duration.Duration = duration.BaseDuration;
+                slot.InteractiveObject.UpdateTimeText();
+                slot.InteractiveObject.Restore();
+            }
+
+            yield break;
+        }
+        public IEnumerator IncreaseDefMultiplier(float amount)
+        {
+            SideState.DefenseMultiplier += amount;
+            SideStatsView.SetDefenseMultiplier(SideState.DefenseMultiplier);
+            var defMulPos =  SideStatsView.DefenseMultiplier.transform.position;
+            G.feel.CreateBasicPopup(defMulPos + Vector3.up * 1, "+ " + amount, Color.blue);
+            yield break;
+        }
+        public IEnumerator TakeDamage(float damage)
+        {
+            SideCharacter.transform.DOShakePosition(0.4f, new Vector3(0.2f, 0.2f, 0));
+            SideState.Health -= damage;
+            SideStatsView.SetHealth(SideState.Health);
+            // i dont know how to make this work better tbh
+            var healthPos =  SideStatsView.Health.transform;
+            G.feel.CreateBasicPopup(healthPos.position + Vector3.up * 1, "- " + damage, Color.orangeRed);
+            yield break;
+            // yield return OnTakeDamage or something like that
+        }
+        public IEnumerator IncreaseDamage(float amount, SideState sideState)
+        {
+            sideState.Damage += amount * sideState.DamageMultiplier;
+            SideStatsView.SetDamage(SideState.Damage);
+            var damagePos =  SideStatsView.Damage.transform.position;
+            G.feel.CreateBasicPopup(damagePos + Vector3.up * 1, "+ " + amount * sideState.DamageMultiplier, Color.crimson);
+            yield break;
+            // yield return on damage dealt
+        }
+        public IEnumerator IncreaseDamageMultiplier(float amount)
+        {
+            SideState.DamageMultiplier += amount;
+            SideStatsView.SetDamageMulitplier(SideState.DamageMultiplier);
+            var multiplierPos =  SideStatsView.Damage.transform.position;
+            G.feel.CreateBasicPopup(multiplierPos + Vector3.right * 1, "+ " + amount, Color.darkOrchid);
+            yield break;
+            // yield return on multiplier increased
+        }
+        public IEnumerator DealDamageToTheOpposingSide(SideTurnsManager opponent)
+        {
+            yield return opponent.TakeDamage(SideState.Damage);
+            yield return UseAllSequence(Slots, opponent);
+        }
+    }
+}
+
+
+
+--- Content of ./MainSystems/SoundManager.cs ---
+
+using System;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class SoundManager : MonoBehaviour
+    {
+        private void Awake()
+        {
+            G.soundManager = this;
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagIncreaseDamage.cs ---
+
+using System;
+using System.Collections;
+using Game.Source.Data.Characters;
+
+namespace Game.Source.Tags
+{
+    [Serializable]
+    public class TagIncreaseDamage : ModifiableComponentDefinition
+    {
+        public float DamageIncrease;
+    }
+    // i dont know if i am going to store side state in slot area yet so im just passing it as a paremeter, wont hurt
+    public class IncreaseDamageFlat : BaseInteraction, IOnUse
+    {
+        public IEnumerator OnUse(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea)
+        {
+            // temporary use model, later get certain stuff i dunno
+            if (itemState.Model.Is<TagIncreaseDamage>(out var dmg))
+            {
+                yield return sideTurns.IncreaseDamage(dmg.DamageIncrease, sideTurns.SideState);
+            }
+        }
+    }
+    public interface IOnUse
+    {
+        public IEnumerator OnUse(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea);
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagPfb.cs ---
+
+using UnityEngine;
+
+namespace Game.Source.Tags
+{
+    public class TagPfb : EntityComponentDefinition
+    {
+        public InteractiveObject Prefab;
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagUseDuration.cs ---
+
+using System;
+
+namespace Game.Source.Tags
+{
+    [Serializable]
+    public class TagUseDuration : ModifiableComponentDefinition
+    {
+        public float BaseDuration;
+        public float Duration;
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagColorPaletteProvider.cs ---
+
+using UnityEngine;
+
+namespace Game.Source.Tags
+{
+    public class TagColorPaletteProvider : EntityComponentDefinition
+    {
+        public Color BaseColor;
+        public Color MaxColor;
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagItemLevel.cs ---
+
+namespace Game.Source.Tags
+{
+    public class TagItemLevel : ModifiableComponentDefinition
+    {
+        public int Level;
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagRarity.cs ---
+
+namespace Game.Source.Tags
+{
+    public class TagRarity : EntityComponentDefinition
+    {
+        public int Rarity;
+        public float Weight;
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagDescription.cs ---
+
+namespace Game.Source.Tags
+{
+    public class TagDescription : EntityComponentDefinition
+    {
+        public string Loc;
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagName.cs ---
+
+namespace Game.Source.Tags
+{
+    public class TagName : EntityComponentDefinition
+    {
+        public string Name;
+    }
+}
+
+
+
+--- Content of ./Data/Tags/ModifiableComponentDefinition.cs ---
+
+namespace Game.Source.Tags
+{
+    public class ModifiableComponentDefinition  : EntityComponentDefinition
+    {
+    }
+}
+
+
+
+--- Content of ./Data/Tags/TagUsed.cs ---
+
+namespace Game.Source.Tags
+{
+    public class TagUsed : ModifiableComponentDefinition
+    {
+        public bool Used;
+    }
+}
+
+
+
+--- Content of ./Data/Items/BaseItem.cs ---
+
+using Game.Source.Tags;
+using UnityEngine;
+
+namespace Game.Source.Data
+{
+    public class BaseItem : CMSEntity
+    {
+        public BaseItem()
+        {
+            Define<TagPfb>().Prefab =  "Prefab/Items/InteractiveObject".Load<InteractiveObject>();
+
+            Define<TagName>().Name = "BaseItem";
+            Define<TagDescription>().Loc = "Does nothing";
+            
+            Define<TagUseDuration>().BaseDuration = 1f;
+            Get<TagUseDuration>().Duration = 1f;
+            
+            Define<TagUsed>().Used = false;
+
+            Define<TagItemLevel>().Level = 1;
+
+            var rarity = Define<TagRarity>();
+            rarity.Rarity = 1;
+            rarity.Weight = 1f;
+            
+            Define<TagColorPaletteProvider>().BaseColor = Color.white;
+            Get<TagColorPaletteProvider>().MaxColor = Color.gray7;
+
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Items/BasicItem.cs ---
+
+using Game.Source.Tags;
+
+namespace Game.Source.Data
+{
+    public class BasicItem : BaseItem
+    {
+        public BasicItem()
+        {
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Items/HandItem.cs ---
+
+using System.Collections;
+using Game.Source.Tags;
+using UnityEngine;
+
+namespace Game.Source.Data
+{
+    public class HandItem : BaseItem
+    {
+        public HandItem()
+        {
+            Get<TagPfb>().Prefab = "Prefab/Items/Hand".Load<InteractiveObject>();
+            
+            var useDuration = Get<TagUseDuration>();
+            useDuration.BaseDuration = 0.5f;
+            useDuration.Duration = 0.5f;
+
+            var palette = Get<TagColorPaletteProvider>();
+            palette.BaseColor = Color.coral;
+            palette.BaseColor = Color.aquamarine;
+            
+            Define<TagDecreaseUseTime>().delta = 0.4f;
+            
+            Get<TagName>().Name = "Hand";
+            Get<TagDescription>().Loc = "On use: set use time of the next item to 0";
+        }
+    }
+    
+    public class TagDecreaseUseTime : ModifiableComponentDefinition
+    {
+        public float delta;
+    }
+
+    public class NegateCooldownOfTheNext : BaseInteraction, IOnUse
+    {
+        public IEnumerator OnUse(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea)
+        {
+            if (itemState.Is<TagDecreaseUseTime>(out var decrease))
+            {
+                for (int i = sideTurns.CurrentItemIndex + 1; i < slotArea.FaceSlots.Count; i++)
+                {
+                    if (slotArea.FaceSlots[i].InteractiveObject != null)
+                    {
+                        InteractiveObject itemToBuff = slotArea.FaceSlots[i].InteractiveObject;
+                        yield return G.main.NegateCooldown(itemToBuff);
+
+                        itemState.View.Moveable.TargetPosition = itemToBuff.transform.position;
+                        yield return new WaitForSeconds(0.1f);
+                        itemState.View.Moveable.TargetPosition = itemState.View.ItemHolder.transform.position;
+
+                        itemToBuff.Spin();
+                        itemToBuff.UpdateTimeText();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Items/KnifeItem.cs ---
+
+using System.Collections;
+using Game.Source.Tags;
+using UnityEngine;
+
+namespace Game.Source.Data
+{
+    public class KnifeItem : BaseItem
+    {
+        public KnifeItem()
+        {
+            Get<TagPfb>().Prefab = "Prefab/Items/Knife".Load<InteractiveObject>();
+            
+            Get<TagUseDuration>().BaseDuration = 0.3f;
+            Get<TagUseDuration>().Duration = 0.3f;
+            
+            Define<TagDealFlatDamage>().Damage = 2f;
+            
+            Get<TagName>().Name = "Knife";
+            Get<TagDescription>().Loc = "On use: Deal flat " + Get<TagDealFlatDamage>().Damage + " damage";
+        }
+    }
+
+    public class TagDealFlatDamage : ModifiableComponentDefinition
+    {
+        public float Damage;
+    }
+
+    public class DealFlatDamageInteraction : BaseInteraction, IOnUse
+    {
+        public IEnumerator OnUse(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea)
+        {
+            if (itemState.Is<TagDealFlatDamage>(out var dfd))
+            {
+                itemState.View.SlashTowards(sideTurns.OpposingSideTurns.SideCharacter);
+                yield return sideTurns.OpposingSideTurns.TakeDamage(dfd.Damage);
+            }
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Items/GunpowderItem.cs ---
+
+using System.Collections;
+using Game.Source.Tags;
+using UnityEngine;
+
+namespace Game.Source.Data
+{
+    public class GunpowderItem : BaseItem
+    {
+        public GunpowderItem()
+        {
+            Get<TagPfb>().Prefab = "Prefab/Items/Gunpowder".Load<InteractiveObject>();
+            
+            var duration = Get<TagUseDuration>(); 
+            duration.BaseDuration = 2f;
+            duration.Duration = 2f;
+            
+            var palette = Get<TagColorPaletteProvider>();
+            palette.BaseColor = Color.gray1;
+            palette.BaseColor = Color.black;
+
+            Define<TagIncreaseDamageMultiplier>().Delta = 0.25f;
+            
+            Get<TagName>().Name = "Gunpowder";
+            Get<TagDescription>().Loc = "On use: increase damage multiplier by " + Get<TagIncreaseDamageMultiplier>().Delta.ToString();
+        }
+    }
+    public class TagIncreaseDamageMultiplier : ModifiableComponentDefinition
+    {
+        public float Delta;
+    }
+
+    public class DamageMultiplierIncreaseInteraction : BaseInteraction, IOnUse
+    {
+        public IEnumerator OnUse(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea)
+        {
+            if (itemState.Is<TagIncreaseDamageMultiplier>(out var mtInc))
+            {
+                yield return sideTurns.IncreaseDamageMultiplier(mtInc.Delta);
+            }
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Items/ImprovedSkullItem.cs ---
+
+using System.Collections;
+using System.Collections.Generic;
+using Game.Source.Tags;
+using UnityEngine;
+
+namespace Game.Source.Data
+{
+    public class ImprovedSkullItem : BaseItem
+    {
+        public ImprovedSkullItem()
+        {
+            var useDuration = Get<TagUseDuration>();
+            useDuration.BaseDuration = 0.5f;
+            useDuration.Duration = 0.5f;
+
+            Define<TagImproveDefMul>().DefMultDelta = 0.1f;
+            
+            Get<TagName>().Name = "Skull";
+            Get<TagDescription>().Loc = "Another item used: increase defense mult by " + Get<TagImproveDefMul>().DefMultDelta;
+        }
+    }
+    public class TagImproveDefMul : ModifiableComponentDefinition
+    {
+        public float DefMultDelta;
+    }
+
+    public class IncreaseMultOnNotUsed : BaseInteraction, IOnNotUsed
+    {
+        public IEnumerator OnNotUsed(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea)
+        {
+            if (itemState.Is<TagImproveDefMul>(out var defImpr))
+            {
+                yield return sideTurns.IncreaseDefMultiplier(defImpr.DefMultDelta);
+            }
+        }
+    }
+    public interface IOnNotUsed
+    {
+        public IEnumerator OnNotUsed(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea);
+    }
+}
+
+
+
+--- Content of ./Data/Items/BulletItem.cs ---
+
+using Game.Source.Tags;
+
+namespace Game.Source.Data
+{
+    public class BulletItem : BaseItem
+    {
+        public BulletItem()
+        {
+            Get<TagPfb>().Prefab = "Prefab/Items/Bullet".Load<InteractiveObject>();
+            
+            var duration = Get<TagUseDuration>(); 
+            duration.BaseDuration = 1f;
+            duration.Duration = 1f;
+            
+            Define<TagIncreaseDamage>().DamageIncrease = 1f;
+            
+            Get<TagName>().Name = "Bullet";
+            Get<TagDescription>().Loc = "On use: Increase damage by " + Get<TagIncreaseDamage>().DamageIncrease.ToString();
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Characters/BasicCharacter.cs ---
+
+using Game.Source.Tags;
+
+namespace Game.Source.Data.Characters
+{
+    public class SideState : EntityComponentDefinition
+    {
+        public float Health;
+        public float Damage;
+        public float DamageMultiplier;
+        public float Defense;
+        public float DefenseMultiplier;
+    }
+
+    public class TagSlotCount : EntityComponentDefinition
+    {
+        public int Count;
+    }
+    public class BasicCharacter : CMSEntity
+    {
+        public BasicCharacter()
+        {
+            var state = Define<SideState>();
+            state.Health = 100f;
+            state.Damage = 0;
+            state.DamageMultiplier = 1f;
+            state.Defense = 0f;
+            state.DefenseMultiplier = 1f;
+            Define<TagSlotCount>().Count = 6;
+        }
+    }
+}
+
+
+
+--- Content of ./Data/Characters/QuickCharacter.cs ---
+
+namespace Game.Source.Data.Characters
+{
+    public class QuickCharacter : CMSEntity
+    {
+        public QuickCharacter()
+        {
+            var state = Define<SideState>();
+            state.Health = 10f;
+            state.Damage = 2;
+            state.DamageMultiplier = 1.2f;
+            state.Defense = 0f;
+            state.DefenseMultiplier = 1f;
+            Define<TagSlotCount>().Count = 3;
+        }
+    }
+}
+
+
+
+--- Content of ./Gameplay/InteractiveObject.cs ---
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using DG.Tweening;
+using Game.Source.Data;
+using Game.Source.Tags;
+using NUnit.Framework.Constraints;
+using TMPro;
+using Unity.Mathematics;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.EventSystems;
+
+namespace Game.Source
+{
+    public class ItemState
+    {
+        public CMSEntity Model;
+        public List<ModifiableComponentDefinition> ModifiableComponents;
+        public float BaseUseDuration;
+        public float UseDuration;
+        public bool Exhausted;
+        public InteractiveObject View;
+        
+        public T Get<T>() where T : EntityComponentDefinition, new()
+        {
+            return ModifiableComponents.Find(m => m is T) as T;
+        }
+        public bool Is<T>(out T unknown) where T : ModifiableComponentDefinition, new()
+        {
+            unknown = Get<T>();
+            return unknown != null;
+        }
+    }
+    public class InteractiveObject : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+    {
+        public ItemState ItemState;
+        
+        [SerializeField] private DraggableSmoothDamp _draggable;
+
+        public event Action<PointerEventData, InteractiveObject> OnDragEnded;
+        public MoveableBase Moveable => _draggable.Moveable;
+        public ItemHolder ItemHolder { get; set; }
+
+        [SerializeField] private TMP_Text _useText;
+
+        [SerializeField] private GameObject _spriteHolder;
+        [SerializeField] private SpriteRenderer _spriteRenderer;
+        
+        [SerializeField] private bool _isLocked = false;
+        [SerializeField] private bool _timerTicking = false;
+        [SerializeField] private float _useTimer = 0f;
+        
+        [SerializeField] private float _colorCycleSpeed = 2f;
+
+        private float _colorT = 0f;
+        public bool IsLocked
+        {
+            get => _isLocked;
+            set
+            {
+                _isLocked = value;
+                _draggable.enabled = !value;
+            }
+        }
+        private void Awake()
+        {
+            _draggable.OnDragEnded += FinishedDragging;
+            OnDragEnded += G.main.CastForNewSlot;
+        }
+
+        private void OnDestroy()
+        {
+            _draggable.OnDragEnded -= FinishedDragging;
+            OnDragEnded -= G.main.CastForNewSlot;
+        }
+
+        // move this somewhere else later
+        private void Update()
+        {
+            if (_timerTicking)
+            {
+                _useTimer -= Time.deltaTime;
+                if (_useTimer <= 0f)
+                {
+                    _timerTicking = false;
+                }
+                else
+                {
+                    var roundedValue = Math.Round(_useTimer, 1);
+                    _useText.text = roundedValue.ToString();
+                }
+            }
+            var colorTag = ItemState.Model.Get<TagColorPaletteProvider>();
+            _colorT = Mathf.Sin(transform.position.x + Time.time * _colorCycleSpeed);
+ 
+            if(!ItemState.Exhausted)
+                _spriteRenderer.color = Color.Lerp(colorTag.BaseColor, colorTag.MaxColor, _colorT);
+        }
+
+        public IEnumerator StartTickingTimer()
+        {
+            _useTimer = ItemState.Get<TagUseDuration>().Duration;
+            _timerTicking = true;
+            yield break;
+        }
+        public void UpdateTimeText()
+        {
+            _useText.transform.DOKill();
+            _useText.transform.localScale = Vector3.one;
+            _useText.text = ItemState.Get<TagUseDuration>().Duration.ToString();
+            _useText.gameObject.transform.DOPunchScale(new Vector3(0.2f, 0.2f, 0.2f), 0.2f);
+        }
+        public void SetState(ItemState itemState)
+        {
+            ItemState = itemState;
+            UpdateTimeText();
+        }
+        public void Restore()
+        {
+            ItemState.Exhausted = false;
+            _spriteRenderer.color = Color.white;
+            Spin();
+        }
+        public void Spin()
+        {
+            _spriteHolder.transform.DOKill();
+            _spriteHolder.transform.rotation = Quaternion.identity;
+            _spriteHolder.transform.DORotate(new(0, 0, 360f), 0.4f, RotateMode.FastBeyond360).SetRelative();
+        }
+        public void Exhaust()
+        {
+            transform.DOKill();
+            transform.localScale = Vector3.one;
+            transform.DOPunchScale(new(0.2f, 0.2f, 0.2f), 0.2f);
+            ItemState.Exhausted = true;
+            _spriteRenderer.color = Color.brown;
+        }
+
+        public void FinishedDragging(PointerEventData eventData)
+        {
+            OnDragEnded?.Invoke(eventData, this);
+        }
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            if (_draggable.IsDragging)
+                return;
+            var name = ItemState.Model.Get<TagName>();
+            var description = ItemState.Model.Get<TagDescription>();
+            G.main.Tooltip.Show(name.Name, description.Loc);
+        }
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            G.main.Tooltip.Hide();
+        }
+
+        public void SlashTowards(GameObject target)
+        {
+            StartCoroutine(SlashTowardsRoutine(target));
+        }
+
+        public IEnumerator SlashTowardsRoutine(GameObject target)
+        {
+            Moveable.TargetPosition = target.transform.position;
+            yield return new WaitForSeconds(0.5f);
+            Spin();
+            yield return new WaitForSeconds(0.4f);
+            Moveable.TargetPosition = ItemHolder.transform.position;
+        }
+    }
+}
+
+
+
+--- Content of ./Gameplay/InventorySlot.cs ---
+
+using System;
+using System.Collections.Generic;
+using DG.Tweening;
+using TMPro;
+using Unity.Mathematics;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public enum Item
+    {
+        None,
+        Bullet
+    }
+    public class InventorySlot : MonoBehaviour
+    {
+        public Transform CursorTarget;
+        public ItemHolder ItemHolder;
+        public event Action OnItemClaimed;
+        public event Action OnItemReleased;
+        // I should probably implement some kind of nullobject later
+        public InteractiveObject InteractiveObject => ItemHolder.InteractiveObject;
+
+        private void Awake()
+        {
+            ItemHolder = GetComponentInChildren<ItemHolder>();
+            ItemHolder.OnClaimed += HolderClaimed;
+            ItemHolder.OnReleased += HolderReleased;
+        }
+        // wrappers for item holder inside
+        public void Claim(InteractiveObject interactiveObject)
+        {
+            if (InteractiveObject == interactiveObject)
+                return;
+            // Overrides Item holders claim and calls it explicitly
+            ItemHolder.Claim(interactiveObject);
+            OnItemClaimed?.Invoke();
+        }
+        public void Release()
+        {
+            ItemHolder.Release();
+        }
+        private void HolderClaimed()
+        {
+            OnItemClaimed?.Invoke();
+        }
+        private void HolderReleased()
+        {
+            OnItemReleased?.Invoke();
+        }
+        public void Activate()
+        {
+            if (InteractiveObject == null)
+                return;
+            //InteractiveObject.AnimateAction();
+        }
+    }
+}
+
+
+
+--- Content of ./Gameplay/SlotArea.cs ---
+
+using System;
+using System.Collections.Generic;
+using Game.Source;
+using TMPro;
+using UnityEngine;
+using GameObject = UnityEngine.GameObject;
+
+[Serializable]
+public struct ItemSprite
+{
+    public Item Item;
+    public Sprite Sprite;
+}
+public class SlotArea : MonoBehaviour
+{
+    [SerializeField] public MoveableBase SlotPointer;
+    [SerializeField] private GameObject _diceSlotPrefab;
+    [SerializeField] private Transform Anchor;
+    [SerializeField] public float Spacing;
+
+    public int CurrentItemIndex = 0;
+    
+    public List<InventorySlot> FaceSlots = new List<InventorySlot>();
+    void Start()
+    {
+        
+    }
+    void Update()
+    {
+    }
+    public InventorySlot AddSlot()
+    {
+        var faceSlotGO = Instantiate(_diceSlotPrefab);
+        faceSlotGO.transform.parent = Anchor;
+        
+        // TODO maybe center them instead later on, or curve (no)
+        // TODO when slot of the same type is added, add it downward (if this feature makes sense tho)
+        faceSlotGO.transform.localPosition = Vector2.right * FaceSlots.Count * Spacing;
+        var faceSlot = faceSlotGO.GetComponent<InventorySlot>();
+        
+        FaceSlots.Add(faceSlot);
+        return faceSlot;
+    }
+
+    public bool AddItemToFreeSlot(InteractiveObject interactiveObject)
+    {
+        var freeSlot = FaceSlots.Find(x => x.InteractiveObject == null);
+        if (freeSlot == null)
+            return false;
+        freeSlot.Claim(interactiveObject);
+        return true;
+    }
+}
+
+
+
+
+--- Content of ./Gameplay/Interactor.cs ---
+
+using System;
+using System.Collections.Generic;
+using Unity.VisualScripting;
+
+namespace Game.Source
+{
+    public static class PriorityLayers
+    {
+        public static int FIRST = -10000;
+        public static int NORMAL = 0;
+        public static int LAST = 10000;
+        public static int LAST_SPECIAL = 10001;
+    }
+    public class Interactor
+    {
+        public List<BaseInteraction> all = new();
+
+        public void Init()
+        {
+            var allTypes = ReflectionUtil.FindAllSubclasses<BaseInteraction>();
+            foreach (var t in allTypes)
+                all.Add(Activator.CreateInstance(t) as BaseInteraction);
+        }
+
+        public List<T> FindAll<T>()
+        {
+            return InteractionCache<T>.FindAll(this);
+        }
+    }
+
+    public static class InteractionCache<T>
+    {
+        public static List<T> all;
+
+        public static List<T> FindAll(Interactor interactor)
+        {
+            if (all != null)
+                return all;
+            all = new List<T>(64);
+            foreach(var a in interactor.all)
+                if (a is T ast)
+                    all.Add(ast);
+            all.Sort((a, b) => (a as BaseInteraction).Priority() - (b as BaseInteraction).Priority());
+            return all;
+        }
+    }
+
+    public abstract class BaseInteraction
+    {
+        public virtual int Priority()
+        {
+            return PriorityLayers.NORMAL;
+        }
+    }
+}
+
+
+
+--- Content of ./Gameplay/StatsView.cs ---
+
+using DG.Tweening;
+using TMPro;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class StatsView : MonoBehaviour
+    {
+        [SerializeField] public TMP_Text Health;
+        [SerializeField] public TMP_Text Damage;
+        [SerializeField] public TMP_Text DamageMultiplier;
+        [SerializeField] public TMP_Text Defense;
+        [SerializeField] public TMP_Text DefenseMultiplier;
+
+        public void SetHealth(float health)
+        {
+            Health.transform.DOKill();
+            Health.transform.localScale = Vector3.one;
+            Health.text = "H: " + health.ToString();
+            Health.transform.DOPunchScale(new(0.2f, 0.2f, 0.2f), 0.3f);
+        }
+        public void SetDamage(float damage)
+        {
+            Damage.transform.DOKill();
+            Damage.transform.localScale = Vector3.one;
+            Damage.text = "D: " + damage.ToString();
+            Damage.transform.DOPunchScale(new(0.2f, 0.2f, 0.2f), 0.3f);
+        }
+        public void SetDamageMulitplier(float damageMul)
+        {
+            DamageMultiplier.transform.DOKill();
+            DamageMultiplier.transform.localScale = Vector3.one;
+            DamageMultiplier.text = "x " + damageMul.ToString();
+            DamageMultiplier.transform.DOPunchScale(new(0.2f, 0.2f, 0.2f), 0.3f);
+        }
+        public void SetDefense(float defense)
+        {
+            Defense.transform.DOKill();
+            DefenseMultiplier.transform.localScale = Vector3.one;
+            Defense.text = "Def: " + defense.ToString();
+            Defense.transform.DOPunchScale(new(0.2f, 0.2f, 0.2f), 0.3f);
+        }
+        public void SetDefenseMultiplier(float defenseMul)
+        {
+            DefenseMultiplier.transform.DOKill();
+            DefenseMultiplier.transform.localScale = Vector3.one;
+            DefenseMultiplier.text = "x " + defenseMul.ToString();
+            DefenseMultiplier.transform.DOPunchScale(new(0.2f, 0.2f, 0.2f), 0.3f);
+        }
+    }
+}
+
+
+
+--- Content of ./Gameplay/ItemDestroyer.cs ---
+
+using System;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class ItemDestroyer : MonoBehaviour
+    {
+        [SerializeField] private ItemHolder _itemHolder;
+        private void Awake()
+        {
+            _itemHolder.OnClaimed += DestroyItem;
+        }
+        public void DestroyItem()
+        {
+            if (_itemHolder.InteractiveObject == null)
+                return;
+            var itemToDestroy = _itemHolder.InteractiveObject.gameObject;
+            _itemHolder.Release();
+            Destroy(itemToDestroy);
+            _itemHolder.InteractiveObject = null;
+        }
+    }
+}
+
+
+
+--- Content of ./Gameplay/ItemHolder.cs ---
+
+using System;
+using Game.Source.Tags;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.EventSystems;
+
+namespace Game.Source
+{
+    public class ItemHolder : MonoBehaviour
+    {
+        // later on use this to do something i dunno
+        public bool CanClaim = true;
+        public InteractiveObject InteractiveObject;
+        
+        // so from what i understand, events should be used in the cases where you dont want some bit to know what it's used for
+        public event Action OnClaimed;
+        public event Action OnReleased;
+        public bool Claim(InteractiveObject interactiveObject)
+        {
+            if (!CanClaim)
+                return false;
+            if (interactiveObject == InteractiveObject)
+                return false;
+            if(InteractiveObject != null)
+                Release();
+            
+            InteractiveObject = interactiveObject;
+            
+            if(InteractiveObject.ItemHolder != null)
+                InteractiveObject.ItemHolder.Release();
+            
+            InteractiveObject.Moveable.TargetPosition = transform.position;
+            InteractiveObject.ItemHolder = this;
+            OnClaimed?.Invoke();
+            return true;
+        }
+        public void Release()
+        {
+            if (InteractiveObject == null)
+                return;
+            // Call main to resolve a stray itemview
+            InteractiveObject.Moveable.TargetPosition = transform.position + Vector3.down * 2f;
+            InteractiveObject.ItemHolder = null;
+            InteractiveObject = null;
+            OnReleased?.Invoke();
+        }
+    }
+}
+
+
+
+--- Content of ./GameFeel/MoveableBase.cs ---
+
+using System;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class MoveableBase : MonoBehaviour
+    {
+        public Vector3 TargetPosition;
+        public float LerpSpeed = 1f;
+        private void Update()
+        {
+            transform.position = Vector3.Lerp(transform.position, TargetPosition, LerpSpeed * Time.deltaTime);
+        }
+    }
+}
+
+
+
+--- Content of ./GameFeel/DraggableSmoothDamp.cs ---
+
+using System;
+using UnityEngine;
+using UnityEngine.EventSystems;
+
+namespace Game.Source
+{
+    public class DraggableSmoothDamp : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IDragHandler
+    {
+        public MoveableBase Moveable;
+        // maybe extract this to another component later on
+        public event Action<PointerEventData> OnDragEnded;
+        
+        public bool IsDragging { get; private set; }
+        
+        private Camera _mainCamera;
+        
+        private Vector2 _origin;
+        private Vector3 _offset;
+
+        private void Start()
+        {
+            _mainCamera = Camera.main;
+            //Moveable.TargetPosition = transform.position;
+        }
+        public void Update()
+        {
+        }
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            IsDragging = true;
+            _origin = Moveable.TargetPosition;
+            Vector3 screenPosition = _mainCamera.WorldToScreenPoint(transform.position);
+            _offset = transform.position -
+                      _mainCamera.ScreenToWorldPoint(new(eventData.position.x, eventData.position.y, 0));
+        }
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            IsDragging = false;
+            Moveable.TargetPosition = _origin;
+            OnDragEnded?.Invoke(eventData);
+        }
+        public void OnDrag(PointerEventData eventData)
+        {
+            Vector3 cursorPoint = new Vector3(eventData.position.x, eventData.position.y, 0);
+            Vector3 cursorPosition = _mainCamera.ScreenToWorldPoint(cursorPoint);
+            cursorPosition.z = transform.position.z;
+            Moveable.TargetPosition = cursorPosition;
+            // scan for slots, if nothing has been hit then return to the previous position
+        }
+    }
+}
+
+
+
+--- Content of ./GameFeel/TiltableSmooth.cs ---
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class TiltableSmooth : MonoBehaviour
+    {
+        public GameObject Tiltable;
+        
+        public float MaxTiltAngle = 45f;
+        public float TiltIntensity = 5f;
+        public float SmoothTime = 0.1f;
+
+        private Vector3 _lastFramePosition;
+        private float _currentTilt;
+        private float _tiltVelocity;
+
+        private void Start()
+        {
+            _lastFramePosition = transform.position;
+        }
+
+        // What i learned is that quaternions are dirty cheap actually and there is no reason to optimize them
+        // The actual thing here is transform writes lool
+        private void LateUpdate()
+        {
+            var delta = transform.position - _lastFramePosition;
+            var targetTilt = Mathf.Clamp((delta.x + delta.y)  * TiltIntensity, -MaxTiltAngle, MaxTiltAngle);
+            
+            _currentTilt = Mathf.SmoothDamp(_currentTilt, targetTilt, ref _tiltVelocity, SmoothTime);
+
+            Tiltable.transform.localRotation = Quaternion.Euler(0f, 0f, _currentTilt);
+
+            _lastFramePosition = transform.position;
+        }
+    }
+}
+
+
+
+--- Content of ./GameFeel/IdleSinMovement.cs ---
+
+using System;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class IdleSinMovement : MonoBehaviour
+    {
+        [SerializeField] private GameObject _spriteHolder;
+        
+        [SerializeField] private DraggableSmoothDamp _draggable;
+
+        [SerializeField] private float _waveSpeed;
+        [SerializeField] private float _waveAmplitude;
+        private void Update()
+        {
+            if (_draggable.IsDragging)
+                return;
+            var waveValue = Mathf.Sin(Time.time * _waveSpeed + transform.position.x);
+            _spriteHolder.transform.localPosition = new Vector3(0, waveValue * _waveAmplitude, 0);
+        }
+    }
+}
+
+
+
+--- Content of ./GameFeel/PopupText.cs ---
+
+using TMPro;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class PopupText : MonoBehaviour
+    {
+        public TMP_Text popupText;
+        public float LifeTime;
+        public void Start()
+        {
+        }
+        public void Update()
+        {
+            LifeTime -= Time.deltaTime;
+            if(LifeTime <= 0)
+                Destroy(gameObject);
+        }
+    }
+}
+
+
+
+--- Content of ./GameFeel/Feel.cs ---
+
+using System;
+using UnityEngine;
+
+namespace Game.Source
+{
+    public class Feel : MonoBehaviour
+    {
+        [SerializeField] private PopupText _basicTextPopup;
+        private void Awake()
+        {
+            G.feel = this;
+        }
+        public void CreateBasicPopup(Vector3 position, string text, Color color)
+        {
+            var popup = Instantiate(_basicTextPopup, position, Quaternion.identity);
+            popup.popupText.text = text;
+            popup.popupText.color = color;
+        }
+    }
+}
+
+

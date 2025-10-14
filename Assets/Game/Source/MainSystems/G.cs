@@ -7,5 +7,7 @@ namespace Game.Source
         public static Main main;
         public static Feel feel;
         public static SoundManager soundManager;
+        public static Ticker Ticker;
+        public static ParticleController ParticleController;
     }
 }

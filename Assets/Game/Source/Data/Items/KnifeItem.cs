@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using Game.Source.Tags;
 using UnityEngine;
 
@@ -10,10 +11,20 @@ namespace Game.Source.Data
         {
             Get<TagPfb>().Prefab = "Prefab/Items/Knife".Load<InteractiveObject>();
             
-            Get<TagUseDuration>().BaseDuration = 0.3f;
-            Get<TagUseDuration>().Duration = 0.3f;
+            var baseDuration = Define<TagBaseUseDuration>();
+            var level = Get<TagItemLevel>();
+
+            baseDuration.Duration = new List<float>(level.MaxLevel + 1)
+            {
+                0.6f, 0.5f, 0.4f, 0.3f, 0.2f, 0.1f
+            };
             
-            Define<TagDealFlatDamage>().Damage = 2f;
+            var duration = Define<TagUseDuration>().Duration = baseDuration.Get(level); 
+
+            Define<TagDealFlatDamage>().Damage = new List<float>(level.MaxLevel + 1)
+            {
+                2f, 2.5f, 3f, 3.5f, 4f, 4.5f
+            };
             
             Get<TagName>().Name = "Knife";
             Get<TagDescription>().Loc = "On use: Deal flat " + Get<TagDealFlatDamage>().Damage + " damage";
@@ -22,7 +33,9 @@ namespace Game.Source.Data
 
     public class TagDealFlatDamage : ModifiableComponentDefinition
     {
-        public float Damage;
+        public List<float> Damage;
+
+        public float Get(TagItemLevel level) => Damage[level.Level];
     }
 
     public class DealFlatDamageInteraction : BaseInteraction, IOnUse
@@ -31,8 +44,13 @@ namespace Game.Source.Data
         {
             if (itemState.Is<TagDealFlatDamage>(out var dfd))
             {
-                itemState.View.SlashTowards(sideTurns.OpposingSideTurns.SideCharacter);
-                yield return sideTurns.OpposingSideTurns.TakeDamage(dfd.Damage);
+                var level = itemState.Get<TagItemLevel>();
+                var duration = itemState.Get<TagUseDuration>();
+                
+                yield return new WaitUntil(G.Ticker.CreatePr(duration.Duration));
+                
+                itemState.View.SlashTowards(sideTurns.OpposingSideTurns.CharacterView.gameObject);
+                yield return sideTurns.OpposingSideTurns.TakeDamage(dfd.Get(level));
             }
         }
     }

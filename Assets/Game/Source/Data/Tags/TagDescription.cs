@@ -1,6 +1,6 @@
 namespace Game.Source.Tags
 {
-    public class TagDescription : EntityComponentDefinition
+    public class TagDescription : ModifiableComponentDefinition
     {
         public string Loc;
     }

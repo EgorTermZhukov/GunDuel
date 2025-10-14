@@ -1,23 +1,31 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using Game.Source.Data.Characters;
+using UnityEngine;
 
 namespace Game.Source.Tags
 {
     [Serializable]
-    public class TagIncreaseDamage : ModifiableComponentDefinition
+    public class TagIncreaseDamage : EntityComponentDefinition
     {
-        public float DamageIncrease;
+        public List<float> DamageIncrease;
+
+        public float Get(TagItemLevel itemLevel)
+        {
+            return DamageIncrease[itemLevel.Level];
+        }
     }
-    // i dont know if i am going to store side state in slot area yet so im just passing it as a paremeter, wont hurt
-    public class IncreaseDamageFlat : BaseInteraction, IOnUse
+    public class IncreaseDamageInteraction : BaseInteraction, IOnUse
     {
         public IEnumerator OnUse(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea)
         {
-            // temporary use model, later get certain stuff i dunno
             if (itemState.Model.Is<TagIncreaseDamage>(out var dmg))
             {
-                yield return sideTurns.IncreaseDamage(dmg.DamageIncrease, sideTurns.SideState);
+                var level = itemState.Get<TagItemLevel>();
+                var duration = itemState.Get<TagUseDuration>();
+                yield return new WaitUntil(G.Ticker.CreatePr(duration.Duration));
+                yield return sideTurns.IncreaseDamage(dmg.Get(level), sideTurns.SideState);
             }
         }
     }

@@ -34,8 +34,8 @@ namespace Game.Source
         [SerializeField] public StatsView PlayerStatsView;
         [SerializeField] public StatsView EnemyStatsView;
 
-        [SerializeField] public GameObject PlayerCharacter;
-        [SerializeField] public GameObject EnemyCharacter;
+        [SerializeField] public CharacterView PlayerCharacter;
+        [SerializeField] public CharacterView EnemyCharacter;
 
         [SerializeField] private TMP_Text _winText;
 

@@ -14,11 +14,12 @@ namespace Game.Source
         public StatsView SideStatsView;
         public SlotArea Slots;
         public int CurrentItemIndex = 0;
-        public GameObject SideCharacter;
-        public SideTurnsManager(SideState sideState, StatsView sideStatsView, SlotArea slots, GameObject sideCharacter)
+        public CharacterView CharacterView;
+        public SideTurnsManager(SideState sideState, StatsView sideStatsView, SlotArea slots, CharacterView characterView)
         {
-            SideCharacter = sideCharacter;
+            CharacterView = characterView;
             
+            // dissect character stats to many different tags
             SideState = sideState.DeepCopy();
             SideStatsView = sideStatsView;
             
@@ -32,7 +33,7 @@ namespace Game.Source
         }
         public IEnumerator UseAllSequence(SlotArea slotArea, SideTurnsManager opponentSideTurns)
         {
-            foreach (var slot in slotArea.FaceSlots)
+            foreach (var slot in slotArea.InvSlots)
             {
                 slotArea.SlotPointer.TargetPosition = slot.CursorTarget.position;
                 if (slot.InteractiveObject == null)
@@ -44,28 +45,14 @@ namespace Game.Source
                 var item = slot.InteractiveObject;
                 
                 yield return item.StartTickingTimer();
-                yield return new WaitForSeconds(item.ItemState.Get<TagUseDuration>().Duration);
+                 
+                // ok, delegating this to the IOnUse yield return new WaitUntil(G.Ticker.CreatePr(item.ItemState.Get<TagUseDuration>().Duration));
                 
                 foreach (var onUse in onUsed)
                 {
-                    // perhaps move it out somewhere else and do a wait until?
-                    // doesn't work well... okay i just found out about something crucial...
-                    // yeah this actually doesn't work at all looool
                     yield return onUse.OnUse(item.ItemState, this, slotArea);
                 }
                 item.Exhaust();
-                for (int i = CurrentItemIndex + 1; i < Slots.FaceSlots.Count; i++)
-                {
-                    var onNotUsed = G.main.Interactor.FindAll<IOnNotUsed>();
-                    var notUsedItem = Slots.FaceSlots[i].InteractiveObject;
-                    if (notUsedItem == null)
-                        continue;
-                    foreach (var notUsed in onNotUsed)
-                    {
-                        slotArea.SlotPointer.TargetPosition = slot.CursorTarget.position;
-                        yield return notUsed.OnNotUsed(notUsedItem.ItemState, this, slotArea);
-                    }
-                }
                 CurrentItemIndex++;
             }
 
@@ -75,14 +62,21 @@ namespace Game.Source
         public IEnumerator RestoreSlots()
         {
             CurrentItemIndex = 0;
-            foreach (var slot in Slots.FaceSlots)
+            foreach (var slot in Slots.InvSlots)
             {
                 if (slot.InteractiveObject == null)
                     continue;
-                var duration = slot.InteractiveObject.ItemState.Get<TagUseDuration>();
-                duration.Duration = duration.BaseDuration;
-                slot.InteractiveObject.UpdateTimeText();
-                slot.InteractiveObject.Restore();
+                
+                var interactiveObject = slot.InteractiveObject;
+                
+                var level = interactiveObject.ItemState.Get<TagItemLevel>();
+                var baseDuration = interactiveObject.ItemState.Model.Get<TagBaseUseDuration>();
+                var duration = interactiveObject.ItemState.Get<TagUseDuration>();
+                
+                duration.Duration = baseDuration.Get(level);
+                
+                interactiveObject.UpdateTimeText();
+                interactiveObject.Restore();
             }
 
             yield break;
@@ -92,26 +86,26 @@ namespace Game.Source
             SideState.DefenseMultiplier += amount;
             SideStatsView.SetDefenseMultiplier(SideState.DefenseMultiplier);
             var defMulPos =  SideStatsView.DefenseMultiplier.transform.position;
-            G.feel.CreateBasicPopup(defMulPos + Vector3.up * 1, "+ " + amount, Color.blue);
+            G.feel.CreateBasicPopup("+ " + amount, 0.5f, CharacterView.StatIncreaseTarget.transform.position, Color.cornflowerBlue, Icon.Defense);
             yield break;
         }
         public IEnumerator TakeDamage(float damage)
         {
-            SideCharacter.transform.DOShakePosition(0.4f, new Vector3(0.2f, 0.2f, 0));
+            //CharacterView.transform.DOShakePosition(0.4f, new Vector3(0.2f, 0.2f, 0));
             SideState.Health -= damage;
+            CharacterView.Flash();
             SideStatsView.SetHealth(SideState.Health);
-            // i dont know how to make this work better tbh
             var healthPos =  SideStatsView.Health.transform;
-            G.feel.CreateBasicPopup(healthPos.position + Vector3.up * 1, "- " + damage, Color.orangeRed);
+            G.feel.CreateBasicPopup("- " + damage, 0.5f, CharacterView.StatDecreaseTarget.transform.position, Color.red, Icon.HealthDamaged);
             yield break;
-            // yield return OnTakeDamage or something like that
         }
         public IEnumerator IncreaseDamage(float amount, SideState sideState)
         {
-            sideState.Damage += amount * sideState.DamageMultiplier;
+            var delta = amount * sideState.DamageMultiplier;
+            sideState.Damage += delta;
             SideStatsView.SetDamage(SideState.Damage);
             var damagePos =  SideStatsView.Damage.transform.position;
-            G.feel.CreateBasicPopup(damagePos + Vector3.up * 1, "+ " + amount * sideState.DamageMultiplier, Color.crimson);
+            G.feel.CreateBasicPopup("+ " + delta, 0.5f, CharacterView.StatIncreaseTarget.transform.position, Color.lawnGreen, Icon.Damage);
             yield break;
             // yield return on damage dealt
         }
@@ -120,12 +114,19 @@ namespace Game.Source
             SideState.DamageMultiplier += amount;
             SideStatsView.SetDamageMulitplier(SideState.DamageMultiplier);
             var multiplierPos =  SideStatsView.Damage.transform.position;
-            G.feel.CreateBasicPopup(multiplierPos + Vector3.right * 1, "+ " + amount, Color.darkOrchid);
+            G.feel.CreateBasicPopup("+x" + amount, 0.5f, CharacterView.StatIncreaseTarget.transform.position, Color.lawnGreen, Icon.None);
             yield break;
-            // yield return on multiplier increased
         }
         public IEnumerator DealDamageToTheOpposingSide(SideTurnsManager opponent)
         {
+            CharacterView.Weapon.rotation = Quaternion.identity;
+            CharacterView.Weapon.DORotate(new(0, 0, 360f), 1f, RotateMode.FastBeyond360).SetRelative();
+            yield return new WaitUntil(G.Ticker.CreatePr(1f));
+            
+            CharacterView.Weapon.DOShakePosition(0.2f, new Vector3(0.2f, 0.2f, 0));
+            
+            G.ParticleController.Spawn(opponent.CharacterView.transform.position, ParticleType.Shoot);
+            
             yield return opponent.TakeDamage(SideState.Damage);
             yield return UseAllSequence(Slots, opponent);
         }

@@ -14,16 +14,19 @@ namespace Game.Source
         
         // so from what i understand, events should be used in the cases where you dont want some bit to know what it's used for
         public event Action OnClaimed;
-        public event Action OnReleased;
+        public event Action<InteractiveObject> OnReleased;
+        public event Action<ItemHolder, InteractiveObject> OnAttemptToOccupy;
         public bool Claim(InteractiveObject interactiveObject)
         {
             if (!CanClaim)
                 return false;
             if (interactiveObject == InteractiveObject)
                 return false;
-            if(InteractiveObject != null)
-                Release();
-            
+            if (InteractiveObject != null)
+            {
+                OnAttemptToOccupy?.Invoke(this, interactiveObject);
+                return false;
+            }
             InteractiveObject = interactiveObject;
             
             if(InteractiveObject.ItemHolder != null)
@@ -34,15 +37,19 @@ namespace Game.Source
             OnClaimed?.Invoke();
             return true;
         }
+        // Well release isn't really called that often lol
         public void Release()
         {
             if (InteractiveObject == null)
                 return;
-            // Call main to resolve a stray itemview
+            
+            var interactiveObject = InteractiveObject;
+            // dont know about that honestly it was a placeholder all the time, maybe it's time to resolve it?
+            // oh wait no it actually works okay, the only thing to resolve is the occupying of the things
             InteractiveObject.Moveable.TargetPosition = transform.position + Vector3.down * 2f;
             InteractiveObject.ItemHolder = null;
             InteractiveObject = null;
-            OnReleased?.Invoke();
+            OnReleased?.Invoke(interactiveObject);
         }
     }
 }

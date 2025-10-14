@@ -1,8 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Game.Source;
+using Game.Source.Data;
+using Game.Source.Tags;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Serialization;
 using GameObject = UnityEngine.GameObject;
 
 [Serializable]
@@ -20,13 +24,42 @@ public class SlotArea : MonoBehaviour
 
     public int CurrentItemIndex = 0;
     
-    public List<InventorySlot> FaceSlots = new List<InventorySlot>();
+    [FormerlySerializedAs("FaceSlots")] public List<InventorySlot> InvSlots = new List<InventorySlot>();
     void Start()
     {
         
     }
     void Update()
     {
+    }
+    public void TryMerge(ItemHolder itemHolder, InteractiveObject interactiveObject)
+    {
+        var itemLevel = itemHolder.InteractiveObject.ItemState.Get<TagItemLevel>();
+        if (itemLevel.Level >= itemLevel.MaxLevel)
+            return;
+        if (itemHolder.InteractiveObject.ItemState.Model != interactiveObject.ItemState.Model)
+            return;
+        if (itemHolder.InteractiveObject.ItemState.Get<TagItemLevel>().Level !=
+            interactiveObject.ItemState.Get<TagItemLevel>().Level)
+            return;
+        
+        itemLevel.Level++;
+        
+        if(interactiveObject.ItemHolder != null)
+            interactiveObject.ItemHolder.Release();
+        
+        StartCoroutine(MergeAnimationRoutine(itemHolder.InteractiveObject, interactiveObject));
+    }
+
+    public IEnumerator MergeAnimationRoutine(InteractiveObject toImprove, InteractiveObject toDestroy)
+    {
+        toDestroy.Moveable.TargetPosition = toImprove.transform.position;
+        toDestroy.IsLocked = true;
+
+        yield return new WaitUntil(G.Ticker.CreatePr(0.1f));
+        // TODO play particles
+        Destroy(toDestroy.gameObject);
+        toImprove.UpdateLevel();
     }
     public InventorySlot AddSlot()
     {
@@ -35,16 +68,18 @@ public class SlotArea : MonoBehaviour
         
         // TODO maybe center them instead later on, or curve (no)
         // TODO when slot of the same type is added, add it downward (if this feature makes sense tho)
-        faceSlotGO.transform.localPosition = Vector2.right * FaceSlots.Count * Spacing;
+        faceSlotGO.transform.localPosition = Vector2.right * InvSlots.Count * Spacing;
         var faceSlot = faceSlotGO.GetComponent<InventorySlot>();
+
+        faceSlot.OnAttemptToOccupy += TryMerge;
         
-        FaceSlots.Add(faceSlot);
+        InvSlots.Add(faceSlot);
+        
         return faceSlot;
     }
-
     public bool AddItemToFreeSlot(InteractiveObject interactiveObject)
     {
-        var freeSlot = FaceSlots.Find(x => x.InteractiveObject == null);
+        var freeSlot = InvSlots.Find(x => x.InteractiveObject == null);
         if (freeSlot == null)
             return false;
         freeSlot.Claim(interactiveObject);

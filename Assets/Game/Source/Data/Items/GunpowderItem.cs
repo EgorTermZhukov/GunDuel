@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using Game.Source.Tags;
 using UnityEngine;
 
@@ -10,15 +11,24 @@ namespace Game.Source.Data
         {
             Get<TagPfb>().Prefab = "Prefab/Items/Gunpowder".Load<InteractiveObject>();
             
-            var duration = Get<TagUseDuration>(); 
-            duration.BaseDuration = 2f;
-            duration.Duration = 2f;
+            var baseDuration = Define<TagBaseUseDuration>();
+            var level = Get<TagItemLevel>();
+
+            baseDuration.Duration = new List<float>(level.MaxLevel + 1)
+            {
+                2f, 1.9f, 1.8f, 1.7f, 1.6f, 1.5f 
+            };
+            
+            var duration = Define<TagUseDuration>().Duration = baseDuration.Get(level); 
+
+            Define<TagIncreaseDamageMultiplier>().Delta = new List<float>(level.MaxLevel + 1)
+            {
+                0.25f, 0.50f, 0.75f, 1f, 1.25f, 1.5f
+            };
             
             var palette = Get<TagColorPaletteProvider>();
             palette.BaseColor = Color.gray1;
-            palette.BaseColor = Color.black;
-
-            Define<TagIncreaseDamageMultiplier>().Delta = 0.25f;
+            palette.BaseColor = Color.darkRed;
             
             Get<TagName>().Name = "Gunpowder";
             Get<TagDescription>().Loc = "On use: increase damage multiplier by " + Get<TagIncreaseDamageMultiplier>().Delta.ToString();
@@ -26,16 +36,24 @@ namespace Game.Source.Data
     }
     public class TagIncreaseDamageMultiplier : ModifiableComponentDefinition
     {
-        public float Delta;
+        public List<float> Delta;
+
+        public float Get(TagItemLevel level)
+        {
+            return Delta[level.Level];
+        }
     }
 
     public class DamageMultiplierIncreaseInteraction : BaseInteraction, IOnUse
     {
         public IEnumerator OnUse(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea)
         {
-            if (itemState.Is<TagIncreaseDamageMultiplier>(out var mtInc))
+            if (itemState.Model.Is<TagIncreaseDamageMultiplier>(out var mtInc))
             {
-                yield return sideTurns.IncreaseDamageMultiplier(mtInc.Delta);
+                var duration = itemState.Get<TagUseDuration>();
+                var level = itemState.Get<TagItemLevel>();
+                yield return new WaitUntil(G.Ticker.CreatePr(duration.Duration));
+                yield return sideTurns.IncreaseDamageMultiplier(mtInc.Get(level));
             }
         }
     }

@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Game.Source.Data
 {
-    public class ImprovedSkullItem : BaseItem
+    /*public class ImprovedSkullItem : BaseItem
     {
         public ImprovedSkullItem()
         {
@@ -37,5 +37,5 @@ namespace Game.Source.Data
     public interface IOnNotUsed
     {
         public IEnumerator OnNotUsed(ItemState itemState, SideTurnsManager sideTurns, SlotArea slotArea);
-    }
+    }*/
 }

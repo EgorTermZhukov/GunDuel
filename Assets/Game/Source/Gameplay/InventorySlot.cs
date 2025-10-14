@@ -17,17 +17,17 @@ namespace Game.Source
         public Transform CursorTarget;
         public ItemHolder ItemHolder;
         public event Action OnItemClaimed;
-        public event Action OnItemReleased;
+        public event Action<InteractiveObject> OnItemReleased;
+        public event Action<ItemHolder, InteractiveObject> OnAttemptToOccupy;
         // I should probably implement some kind of nullobject later
         public InteractiveObject InteractiveObject => ItemHolder.InteractiveObject;
-
         private void Awake()
         {
             ItemHolder = GetComponentInChildren<ItemHolder>();
             ItemHolder.OnClaimed += HolderClaimed;
             ItemHolder.OnReleased += HolderReleased;
+            ItemHolder.OnAttemptToOccupy += TriesToOccupy;
         }
-        // wrappers for item holder inside
         public void Claim(InteractiveObject interactiveObject)
         {
             if (InteractiveObject == interactiveObject)
@@ -44,15 +44,14 @@ namespace Game.Source
         {
             OnItemClaimed?.Invoke();
         }
-        private void HolderReleased()
+        private void HolderReleased(InteractiveObject interactiveObject)
         {
-            OnItemReleased?.Invoke();
+            OnItemReleased?.Invoke(interactiveObject);
         }
-        public void Activate()
+
+        private void TriesToOccupy(ItemHolder itemHolder, InteractiveObject interactiveObject)
         {
-            if (InteractiveObject == null)
-                return;
-            //InteractiveObject.AnimateAction();
+            OnAttemptToOccupy?.Invoke(itemHolder, interactiveObject);
         }
     }
 }
