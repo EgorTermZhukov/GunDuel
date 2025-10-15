@@ -5,6 +5,7 @@ using DG.Tweening;
 using Game.Source.Data;
 using Game.Source.Data.Characters;
 using Game.Source.Tags;
+using Game.Source.Utils;
 using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -52,6 +53,8 @@ namespace Game.Source
         {
             Interactor = new Interactor();
             Interactor.Init();
+            G.DescComposer = new DescriptionComposer();
+            G.DescComposer.Init();
             
             G.main = this;
         }

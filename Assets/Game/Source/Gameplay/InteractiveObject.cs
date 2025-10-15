@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using DG.Tweening;
 using Game.Source.Data;
 using Game.Source.Tags;
+using Game.Source.Utils;
 using NUnit.Framework.Constraints;
 using TMPro;
 using Unity.Mathematics;
@@ -159,8 +160,15 @@ namespace Game.Source
                 return;
             var name = ItemState.Model.Get<TagName>();
             // this probably should do it in another manner
-            var description = ItemState.Get<TagDescription>();
-            G.main.Tooltip.Show(name.Name, description.Loc);
+            var description = "";
+            
+            var descriptions = G.DescComposer.FindAll<IDescriptionProvider>();
+           
+            foreach(var descProvider in descriptions)
+            {
+                description += descProvider.GetDescription(ItemState);
+            }
+            G.main.Tooltip.Show(name.Name, description);
         }
         public void OnPointerExit(PointerEventData eventData)
         {

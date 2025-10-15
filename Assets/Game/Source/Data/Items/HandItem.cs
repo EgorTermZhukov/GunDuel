@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using Game.Source.Tags;
+using Game.Source.Utils;
 using UnityEngine;
 
 namespace Game.Source.Data
@@ -62,6 +63,19 @@ namespace Game.Source.Data
                     }
                 }
             }
+        }
+    }
+    public class CooldownNegatorDescription : IDescriptionProvider
+    {
+        public string GetDescription(ItemState state)
+        {
+            if (state.Model.Is<TagDecreaseUseTime>(out var tag))
+            {
+                var level = state.Get<TagItemLevel>();
+                string description = $"On use: uses the next item <color=yellow> without cooldown </color>";
+                return description;
+            }
+            return "";
         }
     }
 }

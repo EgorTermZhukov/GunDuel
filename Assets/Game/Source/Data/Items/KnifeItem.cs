@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using Game.Source.Tags;
+using Game.Source.Utils;
 using UnityEngine;
 
 namespace Game.Source.Data
@@ -52,6 +53,20 @@ namespace Game.Source.Data
                 itemState.View.SlashTowards(sideTurns.OpposingSideTurns.CharacterView.gameObject);
                 yield return sideTurns.OpposingSideTurns.TakeDamage(dfd.Get(level));
             }
+        }
+    }
+    public class DealFlatDamageDescription : IDescriptionProvider
+    {
+        public string GetDescription(ItemState state)
+        {
+            if (state.Model.Is<TagDealFlatDamage>(out var tag))
+            {
+                var level = state.Get<TagItemLevel>();
+                var value = tag.Get(level);
+                string description = $"On use: deals <color=red> {value} </color> flat damage to the opponent";
+                return description;
+            }
+            return "";
         }
     }
 }

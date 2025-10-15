@@ -121,9 +121,8 @@ namespace Game.Source
         {
             CharacterView.Weapon.rotation = Quaternion.identity;
             CharacterView.Weapon.DORotate(new(0, 0, 360f), 1f, RotateMode.FastBeyond360).SetRelative();
+            G.ParticleController.SpawnAndMoveToWithDuration(1f, CharacterView.Weapon.position, opponent.CharacterView.transform.position);
             yield return new WaitUntil(G.Ticker.CreatePr(1f));
-            
-            CharacterView.Weapon.DOShakePosition(0.2f, new Vector3(0.2f, 0.2f, 0));
             
             G.ParticleController.Spawn(opponent.CharacterView.transform.position, ParticleType.Shoot);
             

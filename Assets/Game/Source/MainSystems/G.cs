@@ -1,4 +1,5 @@
 using System;
+using Game.Source.Utils;
 
 namespace Game.Source
 {
@@ -9,5 +10,6 @@ namespace Game.Source
         public static SoundManager soundManager;
         public static Ticker Ticker;
         public static ParticleController ParticleController;
+        public static DescriptionComposer DescComposer;
     }
 }

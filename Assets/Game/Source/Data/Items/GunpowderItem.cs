@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using Game.Source.Tags;
+using Game.Source.Utils;
 using UnityEngine;
 
 namespace Game.Source.Data
@@ -55,6 +56,20 @@ namespace Game.Source.Data
                 yield return new WaitUntil(G.Ticker.CreatePr(duration.Duration));
                 yield return sideTurns.IncreaseDamageMultiplier(mtInc.Get(level));
             }
+        }
+    }
+    public class MultiplierIncreaseDescription : IDescriptionProvider
+    {
+        public string GetDescription(ItemState state)
+        {
+            if (state.Model.Is<TagIncreaseDamageMultiplier>(out var tag))
+            {
+                var level = state.Get<TagItemLevel>();
+                var value = tag.Get(level);
+                string description = $"On use: increases <color=red> gun damage multiplier </color> by <color=green> {value}</color>";
+                return description;
+            }
+            return "";
         }
     }
 }
